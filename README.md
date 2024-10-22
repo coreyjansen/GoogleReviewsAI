@@ -4,7 +4,7 @@ A Python application for Windows that automates the process of responding to Goo
 
 ## Features
 
-- Extracts Google Business reviews without using the Google API
+- Extracts Google Business reviews from Outscraper-generated Excel files
 - Generates AI responses using a fine-tuned OpenAI model
 - Provides a GUI interface for review management
 - Allows manual review and editing of AI-generated responses
@@ -18,6 +18,7 @@ A Python application for Windows that automates the process of responding to Goo
 - Windows OS
 - OpenAI API access with a fine-tuned model
 - Chrome profile with access to your Google Business account
+- Outscraper.com account
 
 ## Installation
 
@@ -47,6 +48,25 @@ profile_directory=Default
 Ruta_Archivo_Excel=C:\\Users\\YourUsername\\Downloads
 ```
 
+## Outscraper Configuration
+
+1. Create an account at [Outscraper.com](https://outscraper.com)
+2. Set up a new scraping task for your Google Business reviews
+3. Important: Select ALL available columns when configuring the export
+4. Required columns for the script:
+   - review_text
+   - owner_answer
+   - author_title
+   - review_rating
+   - review_datetime_utc
+   - review_link
+   - reviews_link
+   - name
+   - reviews
+   - rating
+
+5. Download the Excel file to the path specified in your `.env` file
+
 ## Configuration
 
 1. Setup your Chrome profile:
@@ -59,23 +79,26 @@ Ruta_Archivo_Excel=C:\\Users\\YourUsername\\Downloads
 
 ## Usage
 
-1. Run the application:
+1. Download your latest reviews from Outscraper.com
+2. Run the application:
 ```bash
 python main.py
 ```
 
-2. The GUI will display:
-   - Business information
+3. The GUI will display:
+   - Business information from the Outscraper export
    - Recent reviews
    - AI-generated responses
    - Options to edit responses
    - Buttons to navigate through reviews
 
-3. For each review:
+4. For each review:
    - Review the AI-generated response
    - Edit if necessary
    - Click "Responder" to post the response
    - The response will be posted in the background
+
+[Rest of the README remains the same...]
 
 ## File Structure
 
