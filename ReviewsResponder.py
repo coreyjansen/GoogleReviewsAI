@@ -91,7 +91,7 @@ def generate_ai_response(review_text, max_retries=3):
             truncated_review = review_text[:700]
             
             if truncated_review.lower() == "nan":
-                truncated_review = "Thank you for visiting our establishment."
+                truncated_review = "Thank you for your business."
             
             messages = [
                 {
