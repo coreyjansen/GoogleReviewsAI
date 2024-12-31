@@ -46,14 +46,9 @@ client = OpenAI(
 # Base prompt template for the AI model
 RESPONSE_PROMPT = """
 As a business owner, respond to this customer review (in the same language as the review).
-Consider these business policies:
-- Entry fee required
-- Special discounts for specific conditions
-- Service through staff or app
-- Unlimited orders with waste penalties
-- Mandatory beverage order
+The business is called Shorty's Plumbing and Heating. They are a plumbing and heating company in Winnipeg Manitoba Canada.
 
-Please respond directly without repeating any policies.
+Please respond directly:
 Review: {}
 """
 
@@ -110,7 +105,7 @@ def generate_ai_response(review_text, max_retries=3):
             ]
             
             response = client.chat.completions.create(
-                model=os.getenv('OPENAI_MODEL_NAME', "ft:gpt-3.5-turbo-1106:default"),
+                model=os.getenv('OPENAI_MODEL_NAME', "gpt4o"),
                 messages=messages,
                 max_tokens=200,
                 temperature=0.40
@@ -200,10 +195,10 @@ class ReviewFrame(wx.Panel):
         self.review_rating_text.SetLabel(str(data.get('review_rating', 'N/A')))
         self.review_datetime_utc_text.SetLabel(str(data.get('review_datetime_utc', 'N/A')))
         if 'review_link' in data:
-            self.review_link_label.SetLabel("Ir a la reseña")
+            self.review_link_label.SetLabel("Go to the review")
             self.review_link_label.SetToolTip(str(data['review_link']))
         else:
-            self.review_link_label.SetLabel("No hay enlace disponible")
+            self.review_link_label.SetLabel("No link available")
             self.review_link_label.SetToolTip("")
 
 
@@ -220,7 +215,7 @@ class ReviewFrame(wx.Panel):
      #create function to respond in google
     def on_respond_in_google(self, event=None):
         try:
-            profile_path = r"C:\Users\Enriq\AppData\Local\Google\Chrome\User Data"
+            profile_path = r"C:\Users\Corey\AppData\Local\Google\Chrome\User Data"
             profile_directory = "Default"
 
             #chrome_options = webdriver.ChromeOptions()
@@ -232,7 +227,7 @@ class ReviewFrame(wx.Panel):
             options = Options()
             options.add_argument(f"user-data-dir={profile_path}")
             options.add_argument(f"--profile-directory={profile_directory}")
-            options.add_argument("--headless")
+            #options.add_argument("--headless")
             options.add_argument("window-size=1920x1080")
 
             #chrome_driver_path = r"D:\OneDrive\ReseñasRespondedor\chromedriver-win64\chromedriver.exe"
