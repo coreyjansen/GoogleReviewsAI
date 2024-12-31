@@ -105,7 +105,7 @@ def generate_ai_response(review_text, max_retries=3):
             ]
             
             response = client.chat.completions.create(
-                model=os.getenv('OPENAI_MODEL_NAME', "gpt4o"),
+                model=os.getenv('OPENAI_MODEL_NAME', "gpt-4o"),
                 messages=messages,
                 max_tokens=200,
                 temperature=0.40
@@ -125,6 +125,7 @@ class ReviewFrame(wx.Panel):
         super().__init__(parent)
         self.data = None
         self.init_controls()
+        # Now create the layout AFTER controls are initialized
         self.create_layout()
 
     def init_controls(self):
@@ -158,31 +159,32 @@ class ReviewFrame(wx.Panel):
         # Response button
         self.respond_button = wx.Button(self, label="Respond")
         self.respond_button.Bind(wx.EVT_BUTTON, self.start_responding)
-        self.create_layout()
 
     def create_layout(self):
         sizer = wx.BoxSizer(wx.VERTICAL)
         grid_sizer = wx.FlexGridSizer(2, 5, 5)
-        grid_sizer.AddMany([(self.author_title_label, 0, wx.EXPAND),
-                            (self.author_title_text, 0, wx.EXPAND),
-                            (self.review_text_label, 0, wx.EXPAND),
-                            (self.review_text_text, 1, wx.EXPAND),
-                            (self.airesponse_label, 0, wx.EXPAND),
-                            (self.airesponse_text, 1, wx.EXPAND),
-                            (wx.StaticText(self), 0), # Espacio en blanco para alinear el botón con airesponse_text
-                            (self.respond_button, 0, wx.EXPAND),
-                            #espacio para confirmar respuesta
-                            (self.responded_label, 0, wx.EXPAND),
-                            (self.review_rating_label, 0, wx.EXPAND),
-                            (self.review_rating_text, 0, wx.EXPAND),
-                            (self.review_datetime_utc_label, 0, wx.EXPAND),
-                            (self.review_datetime_utc_text, 0, wx.EXPAND),
-                            (wx.StaticText(self), 0),
-                            (self.review_link_label, 0, wx.EXPAND)])
+        grid_sizer.AddMany([
+            (self.author_title_label, 0, wx.EXPAND),
+            (self.author_title_text, 0, wx.EXPAND),
+            (self.review_text_label, 0, wx.EXPAND),
+            (self.review_text_text, 1, wx.EXPAND),
+            (self.airesponse_label, 0, wx.EXPAND),
+            (self.airesponse_text, 1, wx.EXPAND),
+            (wx.StaticText(self), 0),  # Espacio en blanco para alinear el botón 
+            (self.respond_button, 0, wx.EXPAND),
+            (self.responded_label, 0, wx.EXPAND),
+            (self.review_rating_label, 0, wx.EXPAND),
+            (self.review_rating_text, 0, wx.EXPAND),
+            (self.review_datetime_utc_label, 0, wx.EXPAND),
+            (self.review_datetime_utc_text, 0, wx.EXPAND),
+            (wx.StaticText(self), 0),
+            (self.review_link_label, 0, wx.EXPAND)
+        ])
         grid_sizer.AddGrowableCol(1, 1)
         grid_sizer.AddGrowableRow(1, 1)
         sizer.Add(grid_sizer, 1, wx.ALL | wx.EXPAND, 5)
         self.SetSizer(sizer)
+
 
     def on_hyperlink(self, event):
         if self.data is not None:
@@ -210,7 +212,7 @@ class ReviewFrame(wx.Panel):
         try:
          self.airesponse_text.SetValue(response_text) 
         except Exception as e:
-         print("Error al actualizar respuesta:", e)
+         print("Error updating response:", e)
    
      #create function to respond in google
     def on_respond_in_google(self, event=None):
@@ -259,7 +261,7 @@ class ReviewFrame(wx.Panel):
             try:
                 WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'div.gws-localreviews__general-reviews-block')))
             except TimeoutException:
-                print("Error: Las reseñas no se cargaron después de hacer clic en 'Más recientes'")
+                print("Error: Reviews did not load after clicking 'Most Recent'")
                 return
 
             current_author = self.data['author_title']
@@ -306,7 +308,7 @@ class ReviewFrame(wx.Panel):
 
    
     def show_responded_message(self):
-        self.responded_label.SetLabel("Respondida!")
+        self.responded_label.SetLabel("Answered!")
         self.responded_label.SetForegroundColour(wx.Colour(0, 255, 0))  # Color verde
         self.Layout()  # Refrescar el layout para mostrar los cambios
 
@@ -326,53 +328,74 @@ class MyFrame(wx.Frame):
         super().__init__(parent, title=title)
         self.panel = wx.ScrolledWindow(self)
         self.panel.SetScrollbars(1, 1, 600, 400)
+
         self.current_page = 0
+        # Load the DataFrame
         self.data = pd.read_excel(self.get_latest_file())
-        self.name_label = wx.StaticText(self.panel, label="Nombre:")
+        
+        # Generate AI responses and store in a list
+        self.responses = []
+        for _, row in self.data.iterrows():
+            review_text = row.get("review_text", "")
+            ai_text = generate_ai_response(review_text)  # call your AI function
+            self.responses.append(ai_text)
+
+        self.name_label = wx.StaticText(self.panel, label="Name:")
         self.name_text = wx.StaticText(self.panel)
-        self.reviews_link_label = wx.StaticText(self.panel, label="Ver todas las reseñas", style=wx.CURSOR_HAND)
+        self.reviews_link_label = wx.StaticText(self.panel, label="See all reviews", style=wx.CURSOR_HAND)
         self.reviews_link_label.SetForegroundColour(wx.BLUE)
         self.reviews_link_label.Bind(wx.EVT_LEFT_DOWN, self.on_hyperlink)
-        self.reviews_label = wx.StaticText(self.panel, label="Número total de reseñas:")
+        self.reviews_label = wx.StaticText(self.panel, label="Total number of reviews:")
         self.reviews_text = wx.StaticText(self.panel)
         self.rating_label = wx.StaticText(self.panel, label="Rating:")
         self.rating_text = wx.StaticText(self.panel)
+
+        # Assuming 'name', 'reviews', 'rating' are columns in self.data
         self.name_text.SetLabel(str(self.data['name'][0]))
         self.reviews_text.SetLabel(str(self.data['reviews'][0]))
         self.rating_text.SetLabel(str(self.data['rating'][0]))
+
         self.review_frames = [ReviewFrame(self.panel) for _ in range(3)]
-        self.previous_button = wx.Button(self.panel, label="Anterior")
-        self.next_button = wx.Button(self.panel, label="Siguiente")
+
+        self.previous_button = wx.Button(self.panel, label="Previous")
+        self.next_button = wx.Button(self.panel, label="Next")
         self.previous_button.Bind(wx.EVT_BUTTON, self.on_previous)
         self.next_button.Bind(wx.EVT_BUTTON, self.on_next)
+
         self.create_layout()
+        
+        # Now that everything is set up, call update_reviews()
         self.update_reviews()
 
     def create_layout(self):
         sizer = wx.BoxSizer(wx.VERTICAL)
         grid_sizer = wx.FlexGridSizer(2, 5, 5)
-        grid_sizer.AddMany([(self.name_label, 0, wx.EXPAND),
-                            (self.name_text, 0, wx.EXPAND),
-                            (self.reviews_link_label, 0, wx.EXPAND),
-                            (wx.StaticText(self.panel), 0),
-                            (self.reviews_label, 0, wx.EXPAND),
-                            (self.reviews_text, 0, wx.EXPAND),
-                            (self.rating_label, 0, wx.EXPAND),
-                            (self.rating_text, 0, wx.EXPAND)])
+        grid_sizer.AddMany([
+            (self.name_label, 0, wx.EXPAND),
+            (self.name_text, 0, wx.EXPAND),
+            (self.reviews_link_label, 0, wx.EXPAND),
+            (wx.StaticText(self.panel), 0),
+            (self.reviews_label, 0, wx.EXPAND),
+            (self.reviews_text, 0, wx.EXPAND),
+            (self.rating_label, 0, wx.EXPAND),
+            (self.rating_text, 0, wx.EXPAND)
+        ])
         grid_sizer.AddGrowableCol(1, 1)
         sizer.Add(grid_sizer, 0, wx.ALL | wx.EXPAND, 5)
+
         for review_frame in self.review_frames:
             sizer.Add(review_frame, 1, wx.ALL | wx.EXPAND, 5)
+
         button_sizer = wx.BoxSizer(wx.HORIZONTAL)
         button_sizer.Add(self.previous_button, 0, wx.ALL, 5)
         button_sizer.Add(self.next_button, 0, wx.ALL, 5)
         sizer.Add(button_sizer, 0, wx.ALIGN_CENTER)
+
         self.panel.SetSizer(sizer)
         self.Fit()
 
     def get_latest_file(self):
-        #list_of_files = glob.glob('D:/Descargas/*.xlsx')
-        list_of_files = glob.glob('C:/Users/Enriq/Downloads/*.xlsx')
+        list_of_files = glob.glob('C:/Users/Corey/SynologyDrive/Gustin Quon/Projects/GMB Review Response/*.xlsx')
         latest_file = max(list_of_files, key=os.path.getmtime)
         return latest_file
 
@@ -392,18 +415,20 @@ class MyFrame(wx.Frame):
     def update_reviews(self):
         start_index = self.current_page * 3
         for i in range(3):
-        # Si hay datos disponibles, llenar el control con esos datos
+            # Check if we have data available
             if start_index + i < len(self.data):
                 self.review_frames[i].update_data(self.data.iloc[start_index + i])
+
+                # Retrieve the AI response from self.responses
                 response_index = start_index + i
-                response_text = responses[response_index]
-                self.review_frames[i].update_ai_response_text(response_text) 
+                response_text = self.responses[response_index]
+                self.review_frames[i].update_ai_response_text(response_text)
             else:
-            # Si no hay datos, limpie el control
+                # If not, clear the control
                 self.review_frames[i].update_data({})
                 self.review_frames[i].update_ai_response_text("")
-            
-         
+
+ 
             
         
 
@@ -414,3 +439,4 @@ if __name__ == "__main__":
     frame.Show()
     app.MainLoop()
 
+ 
