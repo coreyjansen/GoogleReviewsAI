@@ -69,7 +69,6 @@ def build_examples_string(answered_reviews):
 
 
 def generate_ai_response(review_author, review_text, examples_prompt="", max_retries=3):
-    
     """
     Generate AI response for a review using OpenAI's API, incorporating
     both the review's author and text into the prompt.
@@ -91,7 +90,11 @@ def generate_ai_response(review_author, review_text, examples_prompt="", max_ret
             messages = [
                 {
                     "role": "system",
-                    "content": "You are a business owner responding to customer google my business reviews in a helpful and professional tone. Respond in the same language as the review. Responses should be varied but be similar length to previous responses."
+                    "content": (
+                        "You are a business owner responding to customer google my business reviews "
+                        "in a helpful and professional tone. Respond in the same language as the review. "
+                        "Responses should be varied but be similar length to previous responses."
+                    )
                 },
                 {
                     "role": "user",
@@ -124,6 +127,7 @@ class ReviewFrame(wx.Panel):
     def __init__(self, parent):
         super().__init__(parent)
         self.data = None
+        self.row_index = None   # <--- ADDED: store the row index from the parent's DataFrame
         self.init_controls()
         self.create_layout()
 
@@ -188,19 +192,33 @@ class ReviewFrame(wx.Panel):
         if self.data and 'review_link' in self.data:
             webbrowser.open(self.data['review_link'])
 
-    def update_data(self, data):
+    # CHANGED: Now accepts row_index
+    def update_data(self, data, row_index):
+        """Set the data dict and row index, update displayed fields."""
         self.data = data
+        self.row_index = row_index
+
         self.author_title_text.SetLabel(str(data.get('author_title', 'N/A')))
         self.review_text_text.SetValue(str(data.get('review_text', 'N/A')))
         self.review_rating_text.SetLabel(str(data.get('review_rating', 'N/A')))
         self.review_datetime_utc_text.SetLabel(str(data.get('review_datetime_utc', 'N/A')))
 
+        # Link
         if 'review_link' in data and data['review_link']:
             self.review_link_label.SetLabel("Go to the review")
             self.review_link_label.SetToolTip(str(data['review_link']))
         else:
             self.review_link_label.SetLabel("No link available")
             self.review_link_label.SetToolTip("")
+
+        # CHANGED: If there's already an owner_answer in Excel, show "Answered"; else clear.
+        owner_ans = data.get('owner_answer', "")
+        if isinstance(owner_ans, str) and owner_ans.strip():
+            self.responded_label.SetLabel("Answered!")
+            self.responded_label.SetForegroundColour(wx.Colour(0, 255, 0))
+        else:
+            self.responded_label.SetLabel("")
+            self.responded_label.SetForegroundColour(wx.NullColour)
 
     def update_ai_response_text(self, response_text):
         """Update the control for the AI response."""
@@ -211,7 +229,6 @@ class ReviewFrame(wx.Panel):
             print("Error updating response:", e)
 
     def on_respond_in_google(self, event=None):
-
         try:
             print("Attempting to open the browser with Selenium...")
 
@@ -235,6 +252,7 @@ class ReviewFrame(wx.Panel):
                 driver.get(review_link)
             else:
                 print("No review_link found in data!")
+                driver.quit()
                 return
 
             print("Waiting for the 'Sort by newest' button to appear...")
@@ -246,11 +264,10 @@ class ReviewFrame(wx.Panel):
             recent_button.click()
             print("Clicked on 'Most Recent'")
 
-            #driver.switch_to.window(driver.window_handles[-1])
             print("Switched to the last browser tab/window.")
-
             time.sleep(10)
             print("Waited 10 seconds after clicking 'Most Recent'...")
+
             try:
                 print("Waiting for the presence of contributor links (maps/contrib)...")
                 all_links = WebDriverWait(driver, 30).until(
@@ -259,15 +276,13 @@ class ReviewFrame(wx.Panel):
                 print(f"Found {len(all_links)} contributor link(s).")
             except TimeoutException:
                 print("TimeoutException: No contributor links found in 30s!")
-                # Dump the entire HTML to see if the elements are actually there
                 html_source = driver.page_source
                 print("\n===== PAGE SOURCE DUMP =====")
                 print(html_source[:5000])  # Print the first 5000 chars or so
                 print("\n============================")
-
-                # (Optional) Screenshot
                 driver.save_screenshot("debug_screenshot.png")
-                raise  # Re-raise to stop execution or handle gracefully
+                driver.quit()
+                return
 
             try:
                 print("Waiting for the main reviews block to be visible...")
@@ -310,13 +325,13 @@ class ReviewFrame(wx.Panel):
             print("Collecting all authors on the screen to find the exact review to respond to...")
             all_authors = driver.find_elements(By.CSS_SELECTOR, 'a[href*="google.com/maps/contrib/"]')
             for author in all_authors:
-                print(f"Checking author: {author.text}")
+                # This loop tries to match the correct author
                 if current_author == author.text:
                     print("Author matched! Attempting to respond to this review.")
                     review_element = author.find_element(By.XPATH, './../../../..')
                     respond_button = review_element.find_element(By.XPATH, ".//*[contains(text(), 'Reply')]")
                     respond_button.click()
-                    print("Clicked the 'Responder' button.")
+                    print("Clicked the 'Reply' button.")
 
                     print("Waiting for the iFrame with the response box...")
                     responseFrame = WebDriverWait(driver, 1000).until(
@@ -332,10 +347,18 @@ class ReviewFrame(wx.Panel):
 
                     print("Locating the 'Submit' button...")
                     submit_button = WebDriverWait(driver, 10).until(
-                        EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.FwaX8'))
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, 
+                            'button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.'
+                            'VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.FwaX8'
+                        ))
                     )
                     print("Clicking the 'Submit' button to post the reply...")
                     submit_button.click()
+
+                    # CHANGED/ADDED: Once we click, consider it successful. 
+                    # We'll update the DataFrame, save, and set label.
+                    self.show_responded_message()
+
                     break
 
             print("Printing browser console logs for debugging:")
@@ -344,15 +367,25 @@ class ReviewFrame(wx.Panel):
 
             print("Closing the browser...")
             driver.quit()
-            wx.CallAfter(self.show_responded_message)
 
         except Exception as e:
             print(f"Error in on_respond_in_google method: {e}")
 
     def show_responded_message(self):
+        # Mark as answered visually
         self.responded_label.SetLabel("Answered!")
         self.responded_label.SetForegroundColour(wx.Colour(0, 255, 0))  # Green
-        self.Layout()  # Refresh layout
+        self.Layout()
+
+        # ADDED: Write AI response to the DataFrame's owner_answer and save to Excel
+        # Only do it if we know the row_index
+        if self.row_index is not None:
+            parent_frame = self.GetParent().GetParent()  # The top-level MyFrame
+            if hasattr(parent_frame, "data"):
+                # Set owner_answer
+                parent_frame.data.loc[self.row_index, 'owner_answer'] = self.airesponse_text.GetValue()
+                # Save to the same Excel file
+                parent_frame.save_to_excel()
 
     def start_responding(self, event):
         print("Starting response thread...")
@@ -471,10 +504,10 @@ class MyFrame(wx.Frame):
         webbrowser.open(url)
 
     def update_reviews(self):
+        """ Updates which 3 reviews are shown, clearing the 'Answered' label if no owner_answer. """
         start_index = self.current_page * 3
         print(f"Updating reviews for page {self.current_page}, start index = {start_index}")
         for i in range(3):
-            frame_data = {}
             if start_index + i < len(self.data):
                 row = self.data.iloc[start_index + i]
                 frame_data = row.to_dict()
@@ -483,13 +516,22 @@ class MyFrame(wx.Frame):
                 response_index = start_index + i
                 response_text = self.responses[response_index]
                 print(f"Review Frame {i} - Setting data for row {response_index}")
+
+                # Pass data AND the row index so we can write back to Excel if answered
+                self.review_frames[i].update_data(frame_data, start_index + i)
+                self.review_frames[i].update_ai_response_text(response_text)
             else:
-                # If no data, clear
-                response_text = ""
+                # Out of range => clear everything
+                self.review_frames[i].update_data({}, None)
+                self.review_frames[i].update_ai_response_text("")
                 print(f"Review Frame {i} - No data (out of range). Clearing.")
 
-            self.review_frames[i].update_data(frame_data)
-            self.review_frames[i].update_ai_response_text(response_text)
+    # ADDED: Helper to save DataFrame back to Excel
+    def save_to_excel(self):
+        list_of_files = glob.glob('C:/Users/Corey/SynologyDrive/Gustin Quon/Projects/GMB Review Response/*.xlsx')
+        latest_file = max(list_of_files, key=os.path.getmtime)
+        print(f"Saving updated DataFrame to: {latest_file}")
+        self.data.to_excel(latest_file, index=False)
 
 
 if __name__ == "__main__":
