@@ -110,6 +110,7 @@ def generate_ai_response(review_author, review_text, examples_prompt="", max_ret
         
         except Exception as e:
             logger.error(f"Error generating AI response (attempt {attempt + 1}): {e}")
+            print(f"Error generating AI response (attempt {attempt + 1}): {e}")
             if attempt == max_retries - 1:
                 return "Response unavailable at this time."
             time.sleep(2 ** attempt)  # Exponential backoff
@@ -205,110 +206,149 @@ class ReviewFrame(wx.Panel):
         """Update the control for the AI response."""
         try:
             self.airesponse_text.SetValue(response_text)
-            print(f"response_text: {response_text}")
+            print(f"AI Response for current review:\n{response_text}")
         except Exception as e:
             print("Error updating response:", e)
 
     def on_respond_in_google(self, event=None):
 
+        try:
+            print("Attempting to open the browser with Selenium...")
+
+            profile_path = r"C:\Users\Corey\AppData\Local\Google\Chrome\User Data"
+            profile_directory = "Default"
+
+            options = webdriver.ChromeOptions()
+            options.add_argument(f"user-data-dir={profile_path}")
+            options.add_argument(f"--profile-directory={profile_directory}")
+            options.add_argument('window-size=1920x1080')
+
+            service = ChromeDriverService(ChromeDriverManager().install())
+            driver = webdriver.Chrome(service=service, options=options)
+            driver.implicitly_wait(10)
+
+            print("Browser opened successfully.")
+
+            review_link = self.data.get('reviews_link')
+            if review_link:
+                print(f"Navigating to review link: {review_link}")
+                driver.get(review_link)
+            else:
+                print("No review_link found in data!")
+                return
+
+            print("Waiting for the 'Sort by newest' button to appear...")
+            WebDriverWait(driver, 30).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-sort-id="newestFirst"]'))
+            )
+            time.sleep(5)
+            recent_button = driver.find_element(By.CSS_SELECTOR, 'div[data-sort-id="newestFirst"]')
+            recent_button.click()
+            print("Clicked on 'Most Recent'")
+
+            #driver.switch_to.window(driver.window_handles[-1])
+            print("Switched to the last browser tab/window.")
+
+            time.sleep(10)
+            print("Waited 10 seconds after clicking 'Most Recent'...")
             try:
-                print("Attempting to open")
-                #profile_path = r"C:\Users\Corey\SynologyDrive\Gustin Quon\Projects\GMB Review Response"
-                profile_path = r"C:\Users\Corey\AppData\Local\Google\Chrome\User Data"
-                profile_directory = "Default"
+                print("Waiting for the presence of contributor links (maps/contrib)...")
+                all_links = WebDriverWait(driver, 30).until(
+                    EC.presence_of_all_elements_located((By.XPATH, "//a[contains(@href, 'maps/contrib')]"))
+                )
+                print(f"Found {len(all_links)} contributor link(s).")
+            except TimeoutException:
+                print("TimeoutException: No contributor links found in 30s!")
+                # Dump the entire HTML to see if the elements are actually there
+                html_source = driver.page_source
+                print("\n===== PAGE SOURCE DUMP =====")
+                print(html_source[:5000])  # Print the first 5000 chars or so
+                print("\n============================")
 
-                options = webdriver.ChromeOptions()
-                options.add_argument(f"user-data-dir={profile_path}")
-                options.add_argument(f"--profile-directory={profile_directory}")
-                #options.add_argument("--headless")
-                options.add_argument('window-size=1920x1080')
-                #options.add_argument('--remote-debugging-pipe')
+                # (Optional) Screenshot
+                driver.save_screenshot("debug_screenshot.png")
+                raise  # Re-raise to stop execution or handle gracefully
 
-                #options = Options()
-                #options.add_argument("user-data-dir=C:\\Users\\Corey\\AppData\\Local\\Google\\Chrome\\User Data")
-                #options.add_argument("--no-sandbox");
-                #options.add_argument("--disable-dev-shm-usage");
-                #options.add_argument(f"--user-data-dir={profile_path}")
-                #options.add_argument(f"--profile-directory={profile_directory}")
-                #options.add_argument("--headless")
-                
-                #options.add_argument("window-size=1920x1080")
-
-                #chrome_driver_path = r"C:\Windows\chromedriver.exe"
-                #chrome_service = ChromeDriverService(chrome_driver_path)
-                #capabilities = DesiredCapabilities.CHROME.copy()
-                #capabilities['loggingPrefs'] = {'browser': 'ALL'}
-                #driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
-                #driver.implicitly_wait(10)
-
-                # Inicializa el servicio de ChromeDriver con ChromeDriverManager
-                service = ChromeDriverService(ChromeDriverManager().install())
-                driver = webdriver.Chrome(service=service, options=options)
-                driver.implicitly_wait(10)
-
-
-                review_link = self.data.get('reviews_link')
-                if review_link:
-                    driver.get(review_link)
-
-                WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.CSS_SELECTOR, 'div[data-sort-id="newestFirst"]')))
-                time.sleep(5)
-                recent_button = driver.find_element(By.CSS_SELECTOR, 'div[data-sort-id="newestFirst"]')
-                recent_button.click()
-
-                driver.switch_to.window(driver.window_handles[-1])
-                time.sleep(10)
-
-                WebDriverWait(driver, 30).until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, 'a[href*="google.com/maps/contrib/"]')))
-                try:
-                    WebDriverWait(driver, 20).until(EC.visibility_of_element_located((By.CSS_SELECTOR, 'div.gws-localreviews__general-reviews-block')))
-                except TimeoutException:
-                    print("Error: Reviews did not load after clicking 'Most Recent'")
-                    return
-
-                current_author = self.data['author_title']
-                scroll_window = driver.find_element(By.CLASS_NAME, "review-dialog-list")
-                for i in range(10):
-                    try:
-                        author_element = driver.find_element(By.XPATH, f'//a[contains(text(), "{current_author}")]')
-                        print(f"Checking author: {author_element.text}")  # Registro para ver qué autor está siendo verificado
-                    except NoSuchElementException:
-                        driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", scroll_window)
-                        time.sleep(3)
-
-                first_review = driver.find_element(By.CSS_SELECTOR, 'a[href*="google.com/maps/contrib/"]')
-                driver.execute_script("arguments[0].scrollIntoView();", first_review)
-                actions = ActionChains(driver)
-                actions.move_to_element(first_review).perform()
-
-                all_authors = driver.find_elements(By.CSS_SELECTOR, 'a[href*="google.com/maps/contrib/"]')
-                for author in all_authors:
-                    print(f"Checking author: {author.text}")  # Registro para ver qué autor está siendo verificado
-                    if current_author == author.text:
-                        print("Author matched!")  # Registro cuando se encuentra una coincidencia
-                        review_element = author.find_element(By.XPATH, './../../../..')
-                        respond_button = review_element.find_element(By.XPATH, ".//*[contains(text(), 'Responder')]")
-                        respond_button.click()
-
-                        responseFrame = WebDriverWait(driver, 1000).until(EC.presence_of_element_located((By.XPATH, "//iframe[contains(@src, '/local/business')]")))
-                        driver.switch_to.frame(responseFrame)
-                        response_textbox = driver.find_element(By.CSS_SELECTOR, 'textarea[aria-label="Tu respuesta pública"]')
-                        response_textbox.send_keys(self.airesponse_text.GetValue())
-
-                        submit_button = WebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.FwaX8')))
-                        submit_button.click()
-                        break
-
-                for entry in driver.get_log('browser'):
-                    print(entry)
-
+            try:
+                print("Waiting for the main reviews block to be visible...")
+                WebDriverWait(driver, 20).until(
+                    EC.visibility_of_element_located((By.CSS_SELECTOR, 'div.gws-localreviews__general-reviews-block'))
+                )
+                print("Reviews block is visible.")
+            except TimeoutException:
+                print("Error: Reviews did not load after clicking 'Most Recent'")
                 driver.quit()
-                wx.CallAfter(self.show_responded_message)
+                return
 
-            except Exception as e:
-                print(f"Error: {e}")
+            current_author = self.data['author_title']
+            scroll_window = driver.find_element(By.CLASS_NAME, "review-dialog-list")
+            print(f"Looking for the author's review: {current_author}")
 
-    
+            # Try up to 10 scrolls to find the author
+            author_found = False
+            for i in range(10):
+                try:
+                    author_element = driver.find_element(By.XPATH, f'//a[contains(text(), "{current_author}")]')
+                    print(f"Found matching author element: {author_element.text}")
+                    author_found = True
+                    break
+                except NoSuchElementException:
+                    print(f"Author not found in scroll iteration {i+1}. Scrolling more...")
+                    driver.execute_script("arguments[0].scrollTop = arguments[0].scrollHeight", scroll_window)
+                    time.sleep(3)
+
+            if not author_found:
+                print("Author was never found in the loaded reviews.")
+                driver.quit()
+                return
+
+            first_review = driver.find_element(By.CSS_SELECTOR, 'a[href*="google.com/maps/contrib/"]')
+            driver.execute_script("arguments[0].scrollIntoView();", first_review)
+            actions = ActionChains(driver)
+            actions.move_to_element(first_review).perform()
+
+            print("Collecting all authors on the screen to find the exact review to respond to...")
+            all_authors = driver.find_elements(By.CSS_SELECTOR, 'a[href*="google.com/maps/contrib/"]')
+            for author in all_authors:
+                print(f"Checking author: {author.text}")
+                if current_author == author.text:
+                    print("Author matched! Attempting to respond to this review.")
+                    review_element = author.find_element(By.XPATH, './../../../..')
+                    respond_button = review_element.find_element(By.XPATH, ".//*[contains(text(), 'Reply')]")
+                    respond_button.click()
+                    print("Clicked the 'Responder' button.")
+
+                    print("Waiting for the iFrame with the response box...")
+                    responseFrame = WebDriverWait(driver, 1000).until(
+                        EC.presence_of_element_located((By.XPATH, "//iframe[contains(@src, '/local/business')]"))
+                    )
+                    driver.switch_to.frame(responseFrame)
+                    print("Switched to the review response iFrame.")
+
+                    print("Locating the response textbox...")
+                    response_textbox = driver.find_element(By.CSS_SELECTOR, 'textarea[aria-label="Your public reply"]')
+                    print("Typing the AI-generated response...")
+                    response_textbox.send_keys(self.airesponse_text.GetValue())
+
+                    print("Locating the 'Submit' button...")
+                    submit_button = WebDriverWait(driver, 10).until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, 'button.VfPpkd-LgbsSe.VfPpkd-LgbsSe-OWXEXe-k8QpJ.VfPpkd-LgbsSe-OWXEXe-dgl2Hf.nCP5yc.AjY5Oe.DuMIQc.LQeN7.FwaX8'))
+                    )
+                    print("Clicking the 'Submit' button to post the reply...")
+                    submit_button.click()
+                    break
+
+            print("Printing browser console logs for debugging:")
+            for entry in driver.get_log('browser'):
+                print(entry)
+
+            print("Closing the browser...")
+            driver.quit()
+            wx.CallAfter(self.show_responded_message)
+
+        except Exception as e:
+            print(f"Error in on_respond_in_google method: {e}")
+
     def show_responded_message(self):
         self.responded_label.SetLabel("Answered!")
         self.responded_label.SetForegroundColour(wx.Colour(0, 255, 0))  # Green
@@ -336,7 +376,9 @@ class MyFrame(wx.Frame):
         # --------------------------------------------------
         list_of_files = glob.glob('C:/Users/Corey/SynologyDrive/Gustin Quon/Projects/GMB Review Response/*.xlsx')
         latest_file = max(list_of_files, key=os.path.getmtime)
+        print(f"Loading data from: {latest_file}")
         self.data = pd.read_excel(latest_file)
+        print(f"Total rows in dataframe: {len(self.data)}")
 
         # Build examples from previous answered reviews (if any)
         answered_df = self.data.dropna(subset=['owner_answer'])
@@ -344,9 +386,10 @@ class MyFrame(wx.Frame):
 
         # Pre-generate AI responses for all rows
         self.responses = []
-        for _, row in self.data.iterrows():
+        for idx, row in self.data.iterrows():
             author = row.get("author_title", "Anonymous")
             review_text = row.get("review_text", "")
+            print(f"Generating AI response for row {idx} - author '{author}'")
             ai_text = generate_ai_response(
                 review_author=author,
                 review_text=review_text,
@@ -413,18 +456,23 @@ class MyFrame(wx.Frame):
     def on_previous(self, event):
         if self.current_page > 0:
             self.current_page -= 1
+            print(f"Going to previous page: {self.current_page}")
             self.update_reviews()
 
     def on_next(self, event):
         if (self.current_page + 1) * 3 < len(self.data):
             self.current_page += 1
+            print(f"Going to next page: {self.current_page}")
             self.update_reviews()
 
     def on_hyperlink(self, event):
-        webbrowser.open(self.data['reviews_link'][0])
+        url = self.data['reviews_link'][0]
+        print(f"Opening all reviews link: {url}")
+        webbrowser.open(url)
 
     def update_reviews(self):
         start_index = self.current_page * 3
+        print(f"Updating reviews for page {self.current_page}, start index = {start_index}")
         for i in range(3):
             frame_data = {}
             if start_index + i < len(self.data):
@@ -434,9 +482,11 @@ class MyFrame(wx.Frame):
                 # Retrieve the AI response from self.responses
                 response_index = start_index + i
                 response_text = self.responses[response_index]
+                print(f"Review Frame {i} - Setting data for row {response_index}")
             else:
                 # If no data, clear
                 response_text = ""
+                print(f"Review Frame {i} - No data (out of range). Clearing.")
 
             self.review_frames[i].update_data(frame_data)
             self.review_frames[i].update_ai_response_text(response_text)
