@@ -45,6 +45,7 @@ client = OpenAI(
     api_key=os.getenv('OPENAI_API_KEY')
 )
 
+
 # -------------------------------------------
 # Prompt Templates / Helper Functions
 # -------------------------------------------
@@ -127,7 +128,7 @@ class ReviewFrame(wx.Panel):
     def __init__(self, parent):
         super().__init__(parent)
         self.data = None
-        self.row_index = None   # <--- ADDED: store the row index from the parent's DataFrame
+        self.row_index = None
         self.init_controls()
         self.create_layout()
 
@@ -192,7 +193,6 @@ class ReviewFrame(wx.Panel):
         if self.data and 'review_link' in self.data:
             webbrowser.open(self.data['review_link'])
 
-    # CHANGED: Now accepts row_index
     def update_data(self, data, row_index):
         """Set the data dict and row index, update displayed fields."""
         self.data = data
@@ -211,7 +211,7 @@ class ReviewFrame(wx.Panel):
             self.review_link_label.SetLabel("No link available")
             self.review_link_label.SetToolTip("")
 
-        # CHANGED: If there's already an owner_answer in Excel, show "Answered"; else clear.
+        # If there's already an owner_answer in Excel, show "Answered"; else clear.
         owner_ans = data.get('owner_answer', "")
         if isinstance(owner_ans, str) and owner_ans.strip():
             self.responded_label.SetLabel("Answered!")
@@ -355,10 +355,8 @@ class ReviewFrame(wx.Panel):
                     print("Clicking the 'Submit' button to post the reply...")
                     submit_button.click()
 
-                    # CHANGED/ADDED: Once we click, consider it successful. 
-                    # We'll update the DataFrame, save, and set label.
+                    # Once we click, consider it successful. 
                     self.show_responded_message()
-
                     break
 
             print("Printing browser console logs for debugging:")
@@ -374,18 +372,18 @@ class ReviewFrame(wx.Panel):
     def show_responded_message(self):
         # Mark as answered visually
         self.responded_label.SetLabel("Answered!")
-        self.responded_label.SetForegroundColour(wx.Colour(0, 255, 0))  # Green
+        self.responded_label.SetForegroundColour(wx.Colour(0, 255, 0))
         self.Layout()
 
-        # ADDED: Write AI response to the DataFrame's owner_answer and save to Excel
-        # Only do it if we know the row_index
+        # Write AI response to the DataFrame's owner_answer and save to Excel
         if self.row_index is not None:
             parent_frame = self.GetParent().GetParent()  # The top-level MyFrame
-            if hasattr(parent_frame, "data"):
-                # Set owner_answer
-                parent_frame.data.loc[self.row_index, 'owner_answer'] = self.airesponse_text.GetValue()
-                # Save to the same Excel file
+            if hasattr(parent_frame, "filtered_data"):  # <--- now we use filtered_data instead of data
+                parent_frame.filtered_data.loc[self.row_index, 'owner_answer'] = self.airesponse_text.GetValue()
+                # Also update the main data if you want to keep everything in sync
+                # But the main purpose is to save to Excel so it's "answered" next time
                 parent_frame.save_to_excel()
+
 
     def start_responding(self, event):
         print("Starting response thread...")
@@ -417,12 +415,27 @@ class MyFrame(wx.Frame):
         answered_df = self.data.dropna(subset=['owner_answer'])
         self.examples_str = build_examples_string(answered_df)
 
-        # Pre-generate AI responses for all rows
+        # ### ADDED/CHANGED: Filter out reviews that already have an answer
+        # We consider a review "answered" if 'owner_answer' is not empty or not NaN
+        unanswered_mask = (
+            self.data['owner_answer'].isna() | 
+            (self.data['owner_answer'].astype(str).str.strip() == "")
+        )
+        self.filtered_data = self.data[unanswered_mask].copy()  # Keep only unanswered
+        self.filtered_data.reset_index(drop=True, inplace=True)
+        
+        # If all reviews are answered, you might show a message or handle gracefully
+        if len(self.filtered_data) == 0:
+            print("All reviews are already answered!")
+            # You could optionally show a dialog, or do something else
+            # For now, let's just continue with an empty set
+
+        # ### ADDED/CHANGED: Pre-generate AI responses only for the filtered (unanswered) reviews
         self.responses = []
-        for idx, row in self.data.iterrows():
+        for idx, row in self.filtered_data.iterrows():
             author = row.get("author_title", "Anonymous")
             review_text = row.get("review_text", "")
-            print(f"Generating AI response for row {idx} - author '{author}'")
+            print(f"Generating AI response for filtered row {idx} - author '{author}'")
             ai_text = generate_ai_response(
                 review_author=author,
                 review_text=review_text,
@@ -431,20 +444,29 @@ class MyFrame(wx.Frame):
             self.responses.append(ai_text)
 
         # Basic info labels
+        # If you have multiple businesses in the same sheet, adapt as needed
+        # For now, we'll just show name/rating from the first row if it exists
+        default_name = ""
+        default_reviews_link = ""
+        default_reviews_count = ""
+        default_rating = ""
+
+        if len(self.filtered_data) > 0:
+            default_name = str(self.filtered_data.loc[0, 'name'])
+            default_reviews_link = str(self.filtered_data.loc[0, 'reviews_link'])
+            default_reviews_count = str(self.filtered_data.loc[0, 'reviews'])
+            default_rating = str(self.filtered_data.loc[0, 'rating'])
+
         self.name_label = wx.StaticText(self.panel, label="Name:")
-        self.name_text = wx.StaticText(self.panel)
+        self.name_text = wx.StaticText(self.panel, label=default_name)
+        
         self.reviews_link_label = wx.StaticText(self.panel, label="See all reviews", style=wx.CURSOR_HAND)
         self.reviews_link_label.SetForegroundColour(wx.BLUE)
         self.reviews_link_label.Bind(wx.EVT_LEFT_DOWN, self.on_hyperlink)
         self.reviews_label = wx.StaticText(self.panel, label="Total number of reviews:")
-        self.reviews_text = wx.StaticText(self.panel)
+        self.reviews_text = wx.StaticText(self.panel, label=default_reviews_count)
         self.rating_label = wx.StaticText(self.panel, label="Rating:")
-        self.rating_text = wx.StaticText(self.panel)
-
-        # Assuming these columns exist in your DataFrame
-        self.name_text.SetLabel(str(self.data['name'][0]))
-        self.reviews_text.SetLabel(str(self.data['reviews'][0]))
-        self.rating_text.SetLabel(str(self.data['rating'][0]))
+        self.rating_text = wx.StaticText(self.panel, label=default_rating)
 
         # Create 3 frames for 3 reviews at a time
         self.review_frames = [ReviewFrame(self.panel) for _ in range(3)]
@@ -493,41 +515,43 @@ class MyFrame(wx.Frame):
             self.update_reviews()
 
     def on_next(self, event):
-        if (self.current_page + 1) * 3 < len(self.data):
+        if (self.current_page + 1) * 3 < len(self.filtered_data):
             self.current_page += 1
             print(f"Going to next page: {self.current_page}")
             self.update_reviews()
 
     def on_hyperlink(self, event):
-        url = self.data['reviews_link'][0]
-        print(f"Opening all reviews link: {url}")
-        webbrowser.open(url)
+        # Since we've filtered, the first row might not exist
+        # Safely check length:
+        if len(self.filtered_data) > 0:
+            url = self.filtered_data.loc[0, 'reviews_link']
+            print(f"Opening all reviews link: {url}")
+            webbrowser.open(url)
 
     def update_reviews(self):
-        """ Updates which 3 reviews are shown, clearing the 'Answered' label if no owner_answer. """
+        """Updates which 3 reviews are shown (only unanswered), clearing if out of range."""
         start_index = self.current_page * 3
         print(f"Updating reviews for page {self.current_page}, start index = {start_index}")
+
         for i in range(3):
-            if start_index + i < len(self.data):
-                row = self.data.iloc[start_index + i]
+            frame_data = {}
+            row_idx = None
+            response_text = ""
+
+            if start_index + i < len(self.filtered_data):
+                row_idx = start_index + i
+                row = self.filtered_data.iloc[row_idx]
                 frame_data = row.to_dict()
-
-                # Retrieve the AI response from self.responses
-                response_index = start_index + i
-                response_text = self.responses[response_index]
-                print(f"Review Frame {i} - Setting data for row {response_index}")
-
-                # Pass data AND the row index so we can write back to Excel if answered
-                self.review_frames[i].update_data(frame_data, start_index + i)
-                self.review_frames[i].update_ai_response_text(response_text)
+                response_text = self.responses[row_idx]
+                print(f"Review Frame {i} - Setting data for filtered row {row_idx}")
             else:
-                # Out of range => clear everything
-                self.review_frames[i].update_data({}, None)
-                self.review_frames[i].update_ai_response_text("")
                 print(f"Review Frame {i} - No data (out of range). Clearing.")
 
-    # ADDED: Helper to save DataFrame back to Excel
+            self.review_frames[i].update_data(frame_data, row_idx)
+            self.review_frames[i].update_ai_response_text(response_text)
+
     def save_to_excel(self):
+        """Saves the entire DataFrame (with updated owner_answer) back to Excel."""
         list_of_files = glob.glob('C:/Users/Corey/SynologyDrive/Gustin Quon/Projects/GMB Review Response/*.xlsx')
         latest_file = max(list_of_files, key=os.path.getmtime)
         print(f"Saving updated DataFrame to: {latest_file}")
@@ -536,6 +560,6 @@ class MyFrame(wx.Frame):
 
 if __name__ == "__main__":
     app = wx.App()
-    frame = MyFrame(None, "Respondedor Reseñas")
+    frame = MyFrame(None, "Reviews Responder")
     frame.Show()
     app.MainLoop()
